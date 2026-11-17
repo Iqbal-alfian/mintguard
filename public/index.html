@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MintGuard — BSC Contract Safety Auditor</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0e14; color: #e6e9ef; }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sub { color: #9aa4b2; margin: 0 0 24px; line-height: 1.5; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input { flex: 1 1 420px; padding: 12px 14px; border-radius: 10px; border: 1px solid #2a3242; background: #12161f; color: #e6e9ef; font-family: ui-monospace, monospace; font-size: 14px; }
+  button { padding: 12px 20px; border-radius: 10px; border: 0; background: #f0b90b; color: #111; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .examples { margin: 10px 0 0; font-size: 13px; color: #9aa4b2; }
+  .examples a { color: #f0b90b; text-decoration: none; word-break: break-all; }
+  #out { margin-top: 28px; }
+  .card { border: 1px solid #2a3242; border-radius: 14px; padding: 20px; background: #10141d; }
+  .band { font-size: 22px; font-weight: 800; letter-spacing: .4px; }
+  .GO { color: #3fb96f; } .CAUTION { color: #f0b90b; } .BLOCK { color: #e5534b; }
+  .scorebar { height: 10px; border-radius: 6px; background: #232a38; overflow: hidden; margin: 12px 0 6px; }
+  .scorebar > div { height: 100%; }
+  .meta { color: #9aa4b2; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-top: 1px solid #232a38; vertical-align: top; }
+  th { color: #9aa4b2; font-weight: 600; }
+  .st { font-weight: 700; text-transform: uppercase; font-size: 12px; }
+  .st-pass { color: #3fb96f; } .st-warn { color: #f0b90b; } .st-fail { color: #e5534b; } .st-info { color: #7d8590; }
+  .err { color: #e5534b; }
+  footer { margin-top: 36px; color: #7d8590; font-size: 13px; line-height: 1.6; }
+  code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🛡️ MintGuard</h1>
+  <p class="sub">A safety auditor for BNB Chain (BSC) free mints. Paste a contract address — MintGuard reads the chain and the verified source, then returns an explainable verdict: a 0–100 score, a GO / CAUTION / BLOCK band, and the evidence behind every point. Read-only: it never asks for a signature or a wallet.</p>
+
+  <form id="f">
+    <input id="addr" placeholder="0x… contract address on BSC (chain 56)" spellcheck="false" autocomplete="off">
+    <button id="go" type="submit">Audit</button>
+  </form>
+  <p class="examples">Try:
+    <a href="#" data-a="0x1c759C4e075103b5B250DB5114B832b17B99C456">a verified NFT mint</a> ·
+    <a href="#" data-a="0x9CA1A3eeA74829aA5011c56386b226DB472D0F4f">an unverified proxy</a> ·
+    <a href="#" data-a="0x5095BCa1908D7B340144251dB2f1986dE550E779">a plain wallet (EOA)</a>
+  </p>
+
+  <div id="out"></div>
+
+  <footer>
+    How it works: contract code + owner + supply are read over public BSC RPCs, with decisive reads confirmed on a second independent RPC. Verification comes from the Sourcify plain lookup (exact_match only counts as fully verified). When source is verified, the ABI is scanned for risky surfaces — blacklist, adjustable tax, pause control, owner mint, withdraw/rescue, mutable metadata. Unverified contracts are scored on bytecode-level signals only and say so. A score is a screening aid, not a guarantee and not financial advice.
+  </footer>
+</main>
+<script>
+  const f = document.getElementById('f'), addr = document.getElementById('addr'),
+        go = document.getElementById('go'), out = document.getElementById('out');
+  document.querySelectorAll('[data-a]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); addr.value = a.dataset.a; f.requestSubmit();
+  }));
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const a = addr.value.trim();
+    if (!a) return;
+    go.disabled = true; go.textContent = 'Auditing…';
+    out.innerHTML = '<p class="meta">Reading BSC + Sourcify…</p>';
+    try {
+      const r = await fetch('/api/audit?address=' + encodeURIComponent(a));
+      const v = await r.json();
+      if (!r.ok) { out.innerHTML = '<p class="err">' + (v.detail || v.error || 'error') + '</p>'; return; }
+      const color = v.band === 'GO' ? '#3fb96f' : v.band === 'CAUTION' ? '#f0b90b' : '#e5534b';
+      const rows = v.checks.map(c =>
+        '<tr><td class="st st-' + c.status + '">' + c.status + '</td><td><code>' + c.name + '</code></td><td>' + c.detail + '</td></tr>').join('');
+      out.innerHTML =
+        '<div class="card">' +
+          '<div class="band ' + v.band + '">' + v.band + ' — ' + v.score + '/100</div>' +
+          '<div class="scorebar"><div style="width:' + v.score + '%;background:' + color + '"></div></div>' +
+          '<p class="meta">' + v.address + ' · chain ' + v.chain + ' · source: ' +
+            (v.verified.verified ? ('verified (' + v.verified.match + (v.verified.name ? ', ' + v.verified.name : '') + ')') : 'not verified') + '</p>' +
+          '<p>' + v.summary + '</p>' +
+          '<table><tr><th>Status</th><th>Check</th><th>Evidence</th></tr>' + rows + '</table>' +
+        '</div>';
+    } catch (err) {
+      out.innerHTML = '<p class="err">Request failed: ' + err.message + '</p>';
+    } finally {
+      go.disabled = false; go.textContent = 'Audit';
+    }
+  });
+</script>
+</body>
+</html>

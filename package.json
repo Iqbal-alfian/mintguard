@@ -1,0 +1,1 @@
+{"description":"MintGuard — BSC contract safety auditor for free-mint hunters (zkVerify Agent Games, Wildcard track)","name":"mintguard","private":true,"scripts":{"start":"node server.mjs"},"type":"module","version":"1.0.0"}
